@@ -53,6 +53,9 @@ while true; do
         -preset ultrafast \
         -tune zerolatency \
         -crf 23 \
+        -g 30 \
+        -keyint_min 30 \
+        -force_key_frames "expr:gte(t,n_forced*2)" \
         -f hls \
         -hls_time "${HLS_TIME}" \
         -hls_list_size "${HLS_LIST_SIZE}" \
@@ -60,7 +63,7 @@ while true; do
         -hls_segment_filename '/share/ezviz_hls/segment%d.ts' \
         /share/ezviz_hls/stream.m3u8 2>&1
 
-    # Stream ended, wait before restart
-    bashio::log.warning "Stream ended. Restarting in 5 seconds..."
-    sleep 5
+    # Stream ended, quick restart to minimize gap
+    bashio::log.warning "Stream ended. Restarting in 2 seconds..."
+    sleep 2
 done

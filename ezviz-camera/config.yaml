@@ -1,5 +1,5 @@
 name: "EZVIZ Camera HLS Stream"
-version: "1.0.9"
+version: "1.0.10"
 slug: "ezviz_camera_stream"
 description: "Stream EZVIZ cameras via HLS with automatic reconnection"
 arch:
