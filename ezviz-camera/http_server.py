@@ -5,9 +5,17 @@ import http.server
 import socketserver
 import os
 import sys
+import urllib.parse
 
 class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler with CORS headers for cross-origin HLS playback"""
+
+    def translate_path(self, path):
+        """Sanitize path - strip trailing whitespace/control chars like \\r"""
+        # URL decode and strip control characters
+        path = urllib.parse.unquote(path)
+        path = path.rstrip('\r\n\t ')
+        return super().translate_path(path)
 
     def handle(self):
         """Handle request, suppressing BrokenPipeError (client disconnected)"""
