@@ -6,7 +6,28 @@ Stream EZVIZ camera to a named pipe for MediaMTX
 import socket
 import sys
 import os
-from ezviz_stream import EzvizCamera
+import struct
+import threading
+import time
+from ezviz_stream import EzvizCamera, EzvizConfig, VTMPacket
+
+def send_keepalive(sock, stop_event, interval=15):
+    """Send keepalive packets periodically"""
+    seq = 0
+    while not stop_event.is_set():
+        try:
+            # Create keepalive packet (empty payload with MSG_KEEPALIVE_REQ)
+            packet = VTMPacket.encode(b'', EzvizConfig.MSG_KEEPALIVE_REQ, sequence=seq)
+            sock.sendall(packet)
+            seq = (seq + 1) % 65536
+            print(f"Keepalive sent (seq={seq})", file=sys.stderr)
+        except Exception as e:
+            print(f"Keepalive failed: {e}", file=sys.stderr)
+            break
+
+        # Wait for interval or until stop event
+        stop_event.wait(interval)
+
 
 def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
     """Stream EZVIZ camera to a named pipe"""
@@ -55,6 +76,16 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
         print("=" * 60, file=sys.stderr)
         print(f"\nPipe: {pipe_path}", file=sys.stderr)
         print("\nPress Ctrl+C to stop\n", file=sys.stderr)
+
+        # Start keepalive thread
+        stop_keepalive = threading.Event()
+        keepalive_thread = threading.Thread(
+            target=send_keepalive,
+            args=(sock, stop_keepalive, 15),
+            daemon=True
+        )
+        keepalive_thread.start()
+        print("Keepalive thread started", file=sys.stderr)
 
         # Stream loop - write to stdout (which will be piped)
         packet_count = 0
@@ -105,6 +136,12 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
         traceback.print_exc()
     finally:
         print("\nCleaning up...", file=sys.stderr)
+        # Stop keepalive thread
+        try:
+            stop_keepalive.set()
+            keepalive_thread.join(timeout=1)
+        except:
+            pass
         try:
             sock.close()
         except:
