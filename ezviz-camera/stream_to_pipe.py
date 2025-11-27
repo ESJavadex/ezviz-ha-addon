@@ -15,6 +15,11 @@ def send_keepalive(sock, stop_event, interval=15):
     """Send keepalive packets periodically"""
     seq = 0
     while not stop_event.is_set():
+        # Wait first, then send keepalive
+        stop_event.wait(interval)
+        if stop_event.is_set():
+            break
+
         try:
             # Create keepalive packet (empty payload with MSG_KEEPALIVE_REQ)
             packet = VTMPacket.encode(b'', EzvizConfig.MSG_KEEPALIVE_REQ, sequence=seq)
@@ -24,9 +29,6 @@ def send_keepalive(sock, stop_event, interval=15):
         except Exception as e:
             print(f"Keepalive failed: {e}", file=sys.stderr)
             break
-
-        # Wait for interval or until stop event
-        stop_event.wait(interval)
 
 
 def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):

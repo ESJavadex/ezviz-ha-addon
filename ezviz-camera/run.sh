@@ -42,12 +42,12 @@ while true; do
     # Clean old segments
     rm -f /share/ezviz_hls/*.ts /share/ezviz_hls/*.m3u8
 
-    # Start streaming
+    # Start streaming (stderr goes to log, stdout pipes to ffmpeg)
     python3 -u /app/stream_to_pipe.py \
         --email "${EMAIL}" \
         --password "${PASSWORD}" \
         --serial "${SERIAL}" \
-        --region "${REGION}" 2>&1 | \
+        --region "${REGION}" | \
     ffmpeg -re -i pipe:0 \
         -c:v libx264 \
         -preset ultrafast \
