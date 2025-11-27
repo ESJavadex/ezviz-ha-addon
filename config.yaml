@@ -1,0 +1,32 @@
+name: "EZVIZ Camera HLS Stream"
+version: "1.0.0"
+slug: "ezviz_camera_stream"
+description: "Stream EZVIZ cameras via HLS with automatic reconnection"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+startup: services
+boot: auto
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: "HLS HTTP Server"
+options:
+  email: ""
+  password: ""
+  serial: ""
+  region: "Europe"
+  hls_time: 2
+  hls_list_size: 10
+schema:
+  email: str
+  password: password
+  serial: str
+  region: list(Europe|Americas|Asia|Russia)?
+  hls_time: int(1,10)?
+  hls_list_size: int(5,20)?
+image: "ghcr.io/home-assistant/{arch}-addon-ezviz-camera"
