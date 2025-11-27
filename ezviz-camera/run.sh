@@ -16,11 +16,11 @@ bashio::log.info "Email: ${EMAIL}"
 bashio::log.info "Serial: ${SERIAL}"
 bashio::log.info "Region: ${REGION}"
 
-# Start HTTP server in background
+# Start HTTP server with CORS support in background
 cd /share/ezviz_hls
-python3 -m http.server 8080 &
+python3 /app/http_server.py --port 8080 --directory /share/ezviz_hls &
 HTTP_PID=$!
-bashio::log.info "HTTP server started on port 8080 (PID: ${HTTP_PID})"
+bashio::log.info "HTTP server (CORS enabled) started on port 8080 (PID: ${HTTP_PID})"
 
 # Print access instructions
 bashio::log.info "============================================"

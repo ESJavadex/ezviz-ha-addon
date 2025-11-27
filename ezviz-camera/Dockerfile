@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY ezviz_stream.py .
 COPY stream_to_pipe.py .
+COPY http_server.py .
 COPY run.sh .
 
 # Fix line endings and make run script executable
