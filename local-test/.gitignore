@@ -1,0 +1,10 @@
+# Credentials
+.env
+
+# Copied Python files (temporary during build)
+ezviz_stream.py
+stream_to_pipe.py
+
+# HLS output
+*.m3u8
+*.ts

@@ -79,15 +79,17 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
         print(f"\nPipe: {pipe_path}", file=sys.stderr)
         print("\nPress Ctrl+C to stop\n", file=sys.stderr)
 
-        # Start keepalive thread
+        # Keepalive disabled - wrong packet format causes disconnection
+        # TODO: Investigate proper EZVIZ keepalive protocol
         stop_keepalive = threading.Event()
-        keepalive_thread = threading.Thread(
-            target=send_keepalive,
-            args=(sock, stop_keepalive, 15),
-            daemon=True
-        )
-        keepalive_thread.start()
-        print("Keepalive thread started", file=sys.stderr)
+        keepalive_thread = None
+        # keepalive_thread = threading.Thread(
+        #     target=send_keepalive,
+        #     args=(sock, stop_keepalive, 15),
+        #     daemon=True
+        # )
+        # keepalive_thread.start()
+        print("Keepalive disabled (investigating proper format)", file=sys.stderr)
 
         # Stream loop - write to stdout (which will be piped)
         packet_count = 0
@@ -138,10 +140,11 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
         traceback.print_exc()
     finally:
         print("\nCleaning up...", file=sys.stderr)
-        # Stop keepalive thread
+        # Stop keepalive thread if running
         try:
             stop_keepalive.set()
-            keepalive_thread.join(timeout=1)
+            if keepalive_thread:
+                keepalive_thread.join(timeout=1)
         except:
             pass
         try:

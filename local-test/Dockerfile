@@ -13,9 +13,9 @@ RUN mkdir -p /app /hls
 
 WORKDIR /app
 
-# Copy the streaming scripts from parent addon
-COPY ../ezviz-camera/ezviz_stream.py /app/
-COPY ../ezviz-camera/stream_to_pipe.py /app/
+# Copy all app files (copied by build script)
+COPY ezviz_stream.py /app/
+COPY stream_to_pipe.py /app/
 COPY run_local.sh /app/
 
 RUN chmod +x /app/run_local.sh

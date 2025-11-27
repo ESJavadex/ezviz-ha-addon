@@ -1,0 +1,14 @@
+services:
+  ezviz-stream:
+    build: .
+    container_name: ezviz-local-test
+    ports:
+      - "8080:8080"
+    environment:
+      - EZVIZ_EMAIL=${EZVIZ_EMAIL}
+      - EZVIZ_PASSWORD=${EZVIZ_PASSWORD}
+      - EZVIZ_SERIAL=${EZVIZ_SERIAL}
+      - EZVIZ_REGION=${EZVIZ_REGION:-Europe}
+      - HLS_TIME=${HLS_TIME:-2}
+      - HLS_LIST_SIZE=${HLS_LIST_SIZE:-10}
+    restart: unless-stopped
