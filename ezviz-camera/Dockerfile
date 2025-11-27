@@ -1,12 +1,20 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/aarch64-base:3.19
 FROM $BUILD_FROM
 
-# Install FFmpeg and Python dependencies
+# Install bashio, FFmpeg and Python dependencies
+ARG BASHIO_VERSION="v0.16.2"
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     ffmpeg \
-    && rm -rf /var/cache/apk/*
+    curl \
+    jq \
+    && mkdir -p /usr/src/bashio \
+    && curl -L -f -s "https://github.com/hassio-addons/bashio/archive/${BASHIO_VERSION}.tar.gz" \
+        | tar -xzf - --strip-components=1 -C /usr/src/bashio \
+    && mv /usr/src/bashio/lib /usr/lib/bashio \
+    && ln -s /usr/lib/bashio/bashio /usr/bin/bashio \
+    && rm -rf /usr/src/bashio /var/cache/apk/*
 
 # Set working directory
 WORKDIR /app
