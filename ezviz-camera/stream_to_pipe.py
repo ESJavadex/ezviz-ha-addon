@@ -11,8 +11,8 @@ import threading
 import time
 from ezviz_stream import EzvizCamera, EzvizConfig, VTMPacket
 
-def send_keepalive(sock, stop_event, interval=15):
-    """Send keepalive packets periodically"""
+def send_keepalive(sock, stop_event, interval=20):
+    """Send keepalive packets periodically to prevent VTDU timeout"""
     seq = 0
     while not stop_event.is_set():
         # Wait first, then send keepalive
@@ -21,9 +21,17 @@ def send_keepalive(sock, stop_event, interval=15):
             break
 
         try:
-            # Create keepalive packet (empty payload with MSG_KEEPALIVE_REQ)
-            packet = VTMPacket.encode(b'', EzvizConfig.MSG_KEEPALIVE_REQ, sequence=seq)
-            sock.sendall(packet)
+            # Send minimal keepalive - just the 8-byte header with no payload
+            # Use stream channel (0x01) to keep stream connection alive
+            header = struct.pack(
+                '>BBHHH',
+                0x24,  # Magic byte
+                0x01,  # Stream channel
+                0,     # Length (no payload)
+                seq,   # Sequence
+                0x135  # Keepalive request
+            )
+            sock.sendall(header)
             seq = (seq + 1) % 65536
             print(f"Keepalive sent (seq={seq})", file=sys.stderr)
         except Exception as e:
@@ -53,6 +61,16 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(30)
 
+    # Enable TCP keepalive at OS level
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    # Linux TCP keepalive settings (Docker runs on Linux)
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)   # Start after 10s idle
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)  # Probe every 5s
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)    # 6 probes before giving up
+    except (AttributeError, OSError):
+        pass  # macOS uses different constants
+
     try:
         sock.connect((vtdu_ip, vtdu_port))
 
@@ -79,17 +97,11 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
         print(f"\nPipe: {pipe_path}", file=sys.stderr)
         print("\nPress Ctrl+C to stop\n", file=sys.stderr)
 
-        # Keepalive disabled - wrong packet format causes disconnection
-        # TODO: Investigate proper EZVIZ keepalive protocol
+        # Keepalive disabled - EZVIZ rejects all keepalive packet formats
+        # Using continuous HLS segments for seamless reconnection instead
         stop_keepalive = threading.Event()
         keepalive_thread = None
-        # keepalive_thread = threading.Thread(
-        #     target=send_keepalive,
-        #     args=(sock, stop_keepalive, 15),
-        #     daemon=True
-        # )
-        # keepalive_thread.start()
-        print("Keepalive disabled (investigating proper format)", file=sys.stderr)
+        print("Streaming (reconnects every ~30s)", file=sys.stderr)
 
         # Stream loop - write to stdout (which will be piped)
         packet_count = 0
