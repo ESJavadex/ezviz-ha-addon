@@ -29,4 +29,3 @@ schema:
   region: list(Europe|Americas|Asia|Russia)?
   hls_time: int(1,10)?
   hls_list_size: int(5,20)?
-image: "ghcr.io/home-assistant/{arch}-addon-ezviz-camera"
