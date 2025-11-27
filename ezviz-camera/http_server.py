@@ -9,6 +9,17 @@ import sys
 class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler with CORS headers for cross-origin HLS playback"""
 
+    def handle(self):
+        """Handle request, suppressing BrokenPipeError (client disconnected)"""
+        try:
+            super().handle()
+        except BrokenPipeError:
+            # Client disconnected mid-transfer - harmless during stream restarts
+            pass
+        except ConnectionResetError:
+            # Client reset connection - also harmless
+            pass
+
     def end_headers(self):
         # Add CORS headers
         self.send_header('Access-Control-Allow-Origin', '*')

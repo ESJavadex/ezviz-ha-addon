@@ -16,11 +16,24 @@ bashio::log.info "Email: ${EMAIL}"
 bashio::log.info "Serial: ${SERIAL}"
 bashio::log.info "Region: ${REGION}"
 
+# Function to start HTTP server
+start_http_server() {
+    python3 /app/http_server.py --port 8080 --directory /share/ezviz_hls &
+    HTTP_PID=$!
+    bashio::log.info "HTTP server (CORS enabled) started on port 8080 (PID: ${HTTP_PID})"
+}
+
+# Function to check and restart HTTP server if needed
+check_http_server() {
+    if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+        bashio::log.warning "HTTP server died, restarting..."
+        start_http_server
+    fi
+}
+
 # Start HTTP server with CORS support in background
 cd /share/ezviz_hls
-python3 /app/http_server.py --port 8080 --directory /share/ezviz_hls &
-HTTP_PID=$!
-bashio::log.info "HTTP server (CORS enabled) started on port 8080 (PID: ${HTTP_PID})"
+start_http_server
 
 # Print access instructions
 bashio::log.info "============================================"
@@ -69,6 +82,9 @@ while true; do
 
     # Clean up old segments (keep last 30)
     ls -1t /share/ezviz_hls/*.ts 2>/dev/null | tail -n +31 | xargs -r rm -f
+
+    # Check if HTTP server is still alive, restart if needed
+    check_http_server
 
     # Stream ended, quick restart
     bashio::log.warning "Stream ended. Quick restart..."
