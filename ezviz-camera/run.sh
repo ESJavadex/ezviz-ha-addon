@@ -49,7 +49,10 @@ while true; do
         --serial "${SERIAL}" \
         --region "${REGION}" 2>&1 | \
     ffmpeg -re -i pipe:0 \
-        -c:v copy \
+        -c:v libx264 \
+        -preset ultrafast \
+        -tune zerolatency \
+        -crf 23 \
         -f hls \
         -hls_time "${HLS_TIME}" \
         -hls_list_size "${HLS_LIST_SIZE}" \
