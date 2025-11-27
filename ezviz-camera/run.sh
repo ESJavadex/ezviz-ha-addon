@@ -1,5 +1,8 @@
 #!/usr/bin/with-contenv bashio
 
+# Disable exit on error - we handle reconnection ourselves
+set +e
+
 # Get configuration from options
 EMAIL=$(bashio::config 'email')
 PASSWORD=$(bashio::config 'password')
@@ -62,6 +65,7 @@ while true; do
     SESSION_ID="${TIMESTAMP}_${RESTART_COUNT}"
 
     # Start streaming (stderr goes to log, stdout pipes to ffmpeg)
+    # || true ensures the loop continues even if ffmpeg exits with error
     python3 -u /app/stream_to_pipe.py \
         --email "${EMAIL}" \
         --password "${PASSWORD}" \
@@ -78,7 +82,7 @@ while true; do
         -hls_list_size "${HLS_LIST_SIZE}" \
         -hls_flags append_list+omit_endlist+discont_start \
         -hls_segment_filename "/share/ezviz_hls/seg_${SESSION_ID}_%03d.ts" \
-        /share/ezviz_hls/stream.m3u8 2>&1
+        /share/ezviz_hls/stream.m3u8 2>&1 || true
 
     # Clean up old segments (keep last 30)
     ls -1t /share/ezviz_hls/*.ts 2>/dev/null | tail -n +31 | xargs -r rm -f
