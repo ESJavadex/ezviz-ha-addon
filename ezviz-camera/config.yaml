@@ -22,7 +22,7 @@ options:
   region: "Europe"
   hls_time: 2
   hls_list_size: 10
-  on_demand: false
+  on_demand: true
   idle_timeout: 30
 schema:
   email: str
