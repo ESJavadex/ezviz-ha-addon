@@ -10,6 +10,8 @@ SERIAL=$(bashio::config 'serial')
 REGION=$(bashio::config 'region')
 HLS_TIME=$(bashio::config 'hls_time')
 HLS_LIST_SIZE=$(bashio::config 'hls_list_size')
+ON_DEMAND=$(bashio::config 'on_demand')
+IDLE_TIMEOUT=$(bashio::config 'idle_timeout')
 
 # Create HLS directory
 mkdir -p /share/ezviz_hls
@@ -18,6 +20,51 @@ bashio::log.info "Starting EZVIZ Camera HLS Stream..."
 bashio::log.info "Email: ${EMAIL}"
 bashio::log.info "Serial: ${SERIAL}"
 bashio::log.info "Region: ${REGION}"
+bashio::log.info "On-demand mode: ${ON_DEMAND}"
+
+# Clean start - only on first boot
+rm -f /share/ezviz_hls/*.ts /share/ezviz_hls/*.m3u8
+
+# Print access instructions
+bashio::log.info "============================================"
+bashio::log.info "HLS Stream URL: http://homeassistant.local:8080/stream.m3u8"
+bashio::log.info ""
+bashio::log.info "To add camera in Home Assistant UI:"
+bashio::log.info "1. Go to Settings -> Devices & Services"
+bashio::log.info "2. Add Integration -> Generic Camera"
+bashio::log.info "3. Stream Source: http://homeassistant.local:8080/stream.m3u8"
+bashio::log.info "4. Or use your HA IP: http://<HA_IP>:8080/stream.m3u8"
+if [ "${ON_DEMAND}" = "true" ]; then
+    bashio::log.info ""
+    bashio::log.info "ON-DEMAND MODE ENABLED (battery saver)"
+    bashio::log.info "Stream starts when you view the camera"
+    bashio::log.info "Stops after ${IDLE_TIMEOUT}s of inactivity"
+    bashio::log.info "Status endpoint: http://homeassistant.local:8080/status"
+fi
+bashio::log.info "============================================"
+
+# ============================================
+# ON-DEMAND MODE (for battery-powered cameras)
+# ============================================
+if [ "${ON_DEMAND}" = "true" ]; then
+    bashio::log.info "Running in on-demand mode..."
+
+    # Run the on-demand stream manager (handles everything)
+    exec python3 /app/stream_manager.py \
+        --port 8080 \
+        --directory /share/ezviz_hls \
+        --email "${EMAIL}" \
+        --password "${PASSWORD}" \
+        --serial "${SERIAL}" \
+        --region "${REGION}" \
+        --hls-time "${HLS_TIME}" \
+        --hls-list-size "${HLS_LIST_SIZE}" \
+        --idle-timeout "${IDLE_TIMEOUT}"
+fi
+
+# ============================================
+# CONTINUOUS MODE (original behavior)
+# ============================================
 
 # Function to start HTTP server
 start_http_server() {
@@ -37,20 +84,6 @@ check_http_server() {
 # Start HTTP server with CORS support in background
 cd /share/ezviz_hls
 start_http_server
-
-# Print access instructions
-bashio::log.info "============================================"
-bashio::log.info "HLS Stream URL: http://homeassistant.local:8080/stream.m3u8"
-bashio::log.info ""
-bashio::log.info "To add camera in Home Assistant UI:"
-bashio::log.info "1. Go to Settings -> Devices & Services"
-bashio::log.info "2. Add Integration -> Generic Camera"
-bashio::log.info "3. Stream Source: http://homeassistant.local:8080/stream.m3u8"
-bashio::log.info "4. Or use your HA IP: http://<HA_IP>:8080/stream.m3u8"
-bashio::log.info "============================================"
-
-# Clean start - only on first boot
-rm -f /share/ezviz_hls/*.ts /share/ezviz_hls/*.m3u8
 
 # Use timestamp for unique session IDs
 TIMESTAMP=$(date +%s)

@@ -62,7 +62,9 @@ ezviz-camera/           # The actual HA add-on
 ├── Dockerfile          # Container build (Alpine + ffmpeg + Python)
 ├── run.sh              # Main entrypoint, streaming loop
 ├── ezviz_stream.py     # EZVIZ API/protocol library
-└── stream_to_pipe.py   # Stream capture to stdout
+├── stream_to_pipe.py   # Stream capture to stdout
+├── http_server.py      # HTTP server with CORS for HLS
+└── stream_manager.py   # On-demand streaming manager
 
 local-test/             # Development environment
 ├── docker-compose.yml
@@ -80,3 +82,13 @@ local-test/             # Development environment
 | region | list | Europe, Americas, Asia, Russia |
 | hls_time | int(1-10) | Segment duration in seconds |
 | hls_list_size | int(5-20) | Segments in playlist |
+| on_demand | bool | Enable on-demand mode for battery cameras |
+| idle_timeout | int(10-300) | Seconds before stopping idle stream |
+
+## On-Demand Mode (Battery Saver)
+
+For battery-powered cameras (doorbells, etc.), enable `on_demand: true`:
+- Stream only starts when someone views the camera
+- Automatically stops after `idle_timeout` seconds of inactivity
+- When idle, only HTTP server runs (minimal resource usage)
+- Status endpoint: `http://<HA_IP>:8080/status` returns `{"streaming": true/false}`
