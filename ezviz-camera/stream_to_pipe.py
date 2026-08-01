@@ -200,6 +200,8 @@ if __name__ == '__main__':
               file=sys.stderr)
         print("  Ponlo en la opción 'mfa_code' del add-on y reinícialo.", file=sys.stderr)
         print("  Solo hace falta una vez: después queda registrado.", file=sys.stderr)
+        print("  Cuando el stream funcione, vacía 'mfa_code': los códigos "
+              "caducan en minutos.", file=sys.stderr)
         sys.exit(EXIT_AUTH)
     except EzvizAuthError as e:
         print(f"\n✗ {e}", file=sys.stderr)

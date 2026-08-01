@@ -34,8 +34,13 @@ to send a verification code to your account and writes this to the log:
 
 Put that code in the **`mfa_code`** option and restart the add-on. It is only
 needed once: the login registers this installation as a trusted terminal and
-subsequent logins go through without a code. You can leave the option filled in
-or clear it afterwards; it is ignored once the terminal is registered.
+subsequent logins go through without a code.
+
+**Clear the `mfa_code` option once the stream is working.** The code is sent on
+every full login, and these codes expire within minutes — so a stale one stops
+helping and starts *breaking* the login (`meta.code 1012`). The add-on now
+detects that and retries without the code, but leaving it there is pointless
+and makes the logs confusing.
 
 The identity being registered is a `featureCode` generated on first run and
 stored in `/data/feature_code`, which survives restarts and updates. Earlier

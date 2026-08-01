@@ -13,6 +13,7 @@ import hashlib
 import base64
 import json
 import os
+import sys
 import time
 import re
 import uuid
@@ -25,6 +26,11 @@ __author__ = "EZVIZ-RE"
 # ============================================================================
 # AUTENTICACIÓN: ERRORES
 # ============================================================================
+
+def _log(message):
+    """Traza a stderr, que es donde el add-on recoge sus logs."""
+    print("[ezviz] %s" % message, file=sys.stderr)
+
 
 class EzvizAuthError(Exception):
     """Login rechazado por la API de EZVIZ, con el motivo que devolvió."""
@@ -290,15 +296,20 @@ class EzvizAPI:
                 timeout=25,
             )
             result = response.json()
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as exc:
+            _log("refresco de sesión fallido (%s); se hará login completo" % exc)
             return False
 
-        if (result.get("meta", {}) or {}).get("code") != 200:
+        meta_code = (result.get("meta", {}) or {}).get("code")
+        if meta_code != 200:
+            _log("refresco de sesión rechazado [meta.code=%s]; se hará login "
+                 "completo" % meta_code)
             return False
 
         info = result.get("sessionInfo") or {}
         session_id = info.get("sessionId")
         if not session_id:
+            _log("el refresco no devolvió sessionId; se hará login completo")
             return False
 
         self.session_id = str(session_id)
@@ -370,12 +381,13 @@ class EzvizAPI:
 
         return False
 
-    def login(self, sms_code=None):
+    def login(self, sms_code=None, _retrying_without_code=False):
         """Autentica contra la API de EZVIZ.
 
         Args:
             sms_code: código de verificación recibido por email/SMS. Solo hace
                 falta la primera vez que se registra este terminal.
+            _retrying_without_code: uso interno, evita reintentar en bucle.
 
         Raises:
             EzvizMFARequired: la cuenta exige verificar el dispositivo (6002).
@@ -387,6 +399,7 @@ class EzvizAPI:
         # la posibilidad de que EZVIZ pida verificar el dispositivo otra vez).
         # Cuando se está registrando un código nuevo hay que loguear de verdad.
         if not sms_code and self.refresh_session():
+            _log("sesión renovada sin reloguear")
             return True
 
         endpoint = "/v3/users/login/v5"
@@ -438,6 +451,21 @@ class EzvizAPI:
                 )
             self.send_mfa_code()
             raise EzvizMFARequired(code, meta.get("message", "verificación requerida"))
+
+        # Un código de verificación caducado o incorrecto no debe dejar el
+        # add-on inservible: la opción se queda escrita en la configuración y se
+        # reenvía en cada login, así que un código viejo pasa de ayudar a
+        # romper. Si el terminal ya se registró en su día, sin código entra.
+        if code in (1011, 1012) and sms_code and not _retrying_without_code:
+            return self.login(sms_code=None, _retrying_without_code=True)
+
+        if code in (1011, 1012):
+            raise EzvizAuthError(
+                code,
+                "el código de verificación no es válido o ha caducado. Si ya "
+                "verificaste este dispositivo, vacía la opción 'mfa_code'; si "
+                "no, pide uno nuevo y ponlo ahí",
+            )
 
         if code in (1013, 1015):
             raise EzvizAuthError(code, "la cuenta está bloqueada")
