@@ -122,6 +122,9 @@ class EzvizConfig:
     # Único y persistente por instalación. Ver _resolve_feature_code().
     FEATURE_CODE = _resolve_feature_code()
 
+    # Margen mínimo entre envíos de código de verificación.
+    MFA_RESEND_SECONDS = 900
+
 
 # ============================================================================
 # PROTOBUF ENCODING
@@ -268,6 +271,35 @@ class EzvizAPI:
             return False
         return code == 200
 
+    def _mfa_code_recently_sent(self):
+        """¿Se pidió ya un código hace poco?
+
+        Cada envío invalida el anterior. Como el bucle de reconexión reintenta
+        indefinidamente, pedir uno en cada intento deja al usuario persiguiendo
+        un código que caduca antes de que le dé tiempo a copiarlo, y le llena el
+        correo. Se pide como mucho uno cada MFA_RESEND_SECONDS.
+        """
+        marker = os.environ.get("EZVIZ_MFA_MARKER_FILE", "/data/mfa_requested_at")
+        now = time.time()
+
+        try:
+            with open(marker) as fh:
+                last = float(fh.read().strip())
+            if now - last < EzvizConfig.MFA_RESEND_SECONDS:
+                return True
+        except (OSError, ValueError):
+            pass
+
+        try:
+            with open(marker, "w") as fh:
+                fh.write(str(now))
+        except OSError:
+            # Sin almacenamiento persistente no se puede recordar; se prefiere
+            # no reenviar a arriesgarse a invalidar un código válido.
+            return False
+
+        return False
+
     def login(self, sms_code=None):
         """Autentica contra la API de EZVIZ.
 
@@ -317,6 +349,14 @@ class EzvizAPI:
             return True
 
         if code == 6002:
+            # Solo se pide un código nuevo si no hay uno reciente en camino:
+            # cada envío invalida el anterior.
+            if self._mfa_code_recently_sent():
+                raise EzvizMFARequired(
+                    code,
+                    "ya se envió un código hace poco; usa ese. Para forzar uno "
+                    "nuevo, borra /data/mfa_requested_at y reinicia",
+                )
             self.send_mfa_code()
             raise EzvizMFARequired(code, meta.get("message", "verificación requerida"))
 
