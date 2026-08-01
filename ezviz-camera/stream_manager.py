@@ -21,11 +21,12 @@ class StreamManager:
     """Manages the streaming pipeline lifecycle"""
 
     def __init__(self, email, password, serial, region, hls_time, hls_list_size,
-                 hls_dir, idle_timeout=30):
+                 hls_dir, idle_timeout=30, mfa_code=None):
         self.email = email
         self.password = password
         self.serial = serial
         self.region = region
+        self.mfa_code = mfa_code
         self.hls_time = hls_time
         self.hls_list_size = hls_list_size
         self.hls_dir = Path(hls_dir)
@@ -59,6 +60,8 @@ class StreamManager:
                 '--serial', self.serial,
                 '--region', self.region
             ]
+            if self.mfa_code:
+                python_cmd += ['--mfa-code', self.mfa_code]
 
             ffmpeg_cmd = [
                 'ffmpeg', '-re', '-i', 'pipe:0',
@@ -286,6 +289,7 @@ if __name__ == '__main__':
     parser.add_argument('--hls-time', type=int, default=2)
     parser.add_argument('--hls-list-size', type=int, default=10)
     parser.add_argument('--idle-timeout', type=int, default=30)
+    parser.add_argument('--mfa-code', default=None)
 
     args = parser.parse_args()
 
@@ -298,5 +302,6 @@ if __name__ == '__main__':
         region=args.region,
         hls_time=args.hls_time,
         hls_list_size=args.hls_list_size,
-        idle_timeout=args.idle_timeout
+        idle_timeout=args.idle_timeout,
+        mfa_code=args.mfa_code or None
     )

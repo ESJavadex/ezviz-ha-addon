@@ -12,12 +12,77 @@ import struct
 import hashlib
 import base64
 import json
+import os
 import time
 import re
+import uuid
 from urllib.parse import urlencode
 
 __version__ = "1.0.0"
 __author__ = "EZVIZ-RE"
+
+
+# ============================================================================
+# AUTENTICACIÓN: ERRORES
+# ============================================================================
+
+class EzvizAuthError(Exception):
+    """Login rechazado por la API de EZVIZ, con el motivo que devolvió."""
+
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__("EZVIZ rechazó el login [meta.code=%s]: %s" % (code, message))
+
+
+class EzvizMFARequired(EzvizAuthError):
+    """EZVIZ exige verificar este dispositivo con un código de un solo uso.
+
+    Es el código 6002. No significa que la contraseña sea incorrecta: la cuenta
+    no reconoce este terminal y hay que registrarlo una vez con el código que
+    EZVIZ envía por email o SMS.
+    """
+
+
+def _resolve_feature_code():
+    """Identificador estable de este terminal para la API de EZVIZ.
+
+    EZVIZ vincula el featureCode a la cuenta al verificar el dispositivo, así que
+    tiene que sobrevivir a los reinicios: si cambia, vuelve a pedir código. Se
+    guarda en /data, que en un add-on de Home Assistant es persistente.
+
+    Un valor genérico (32 ceros, como usaban las versiones anteriores) lo
+    comparten todos los que instalen el add-on y EZVIZ acaba rechazándolo.
+    """
+    explicit = os.environ.get("EZVIZ_FEATURE_CODE", "").strip()
+    if len(explicit) == 32:
+        return explicit
+
+    path = os.environ.get("EZVIZ_FEATURE_CODE_FILE", "/data/feature_code")
+
+    try:
+        with open(path) as fh:
+            stored = fh.read().strip()
+        if len(stored) == 32:
+            return stored
+    except OSError:
+        pass
+
+    code = uuid.uuid4().hex
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(code)
+        os.chmod(path, 0o600)
+        return code
+    except OSError:
+        # Sin almacenamiento persistente (local-test): se deriva de la MAC, que
+        # al menos es estable mientras no cambie el host.
+        mac = uuid.getnode()
+        mac_str = ":".join("%02x" % ((mac >> i) & 0xFF) for i in range(40, -1, -8))
+        return hashlib.md5(mac_str.encode()).hexdigest()
 
 # ============================================================================
 # CONFIGURATION
@@ -54,7 +119,8 @@ class EzvizConfig:
     CLIENT_VERSION = "2,5,1,2109068"
     CUSTOM_NO = "1000001"
     APP_ID = "ys7"
-    FEATURE_CODE = "00000000000000000000000000000000"
+    # Único y persistente por instalación. Ver _resolve_feature_code().
+    FEATURE_CODE = _resolve_feature_code()
 
 
 # ============================================================================
@@ -187,29 +253,87 @@ class EzvizAPI:
             headers["sessionId"] = self.session_id
         return headers
 
-    def login(self):
-        """Login to EZVIZ API"""
+    def send_mfa_code(self):
+        """Pide a EZVIZ que envíe un código de verificación a la cuenta."""
+        endpoint = "/v3/sms/nologin/checkcode"
+        response = requests.post(
+            f"{self.api_url}{endpoint}",
+            data=urlencode({"from": self.email, "bizType": "TERMINAL_BIND"}),
+            headers=self._get_headers(),
+            timeout=25,
+        )
+        try:
+            code = response.json().get("meta", {}).get("code")
+        except ValueError:
+            return False
+        return code == 200
+
+    def login(self, sms_code=None):
+        """Autentica contra la API de EZVIZ.
+
+        Args:
+            sms_code: código de verificación recibido por email/SMS. Solo hace
+                falta la primera vez que se registra este terminal.
+
+        Raises:
+            EzvizMFARequired: la cuenta exige verificar el dispositivo (6002).
+                Antes de lanzarla se pide el envío del código, para que el
+                usuario ya lo tenga en su bandeja al leer el error.
+            EzvizAuthError: cualquier otro rechazo, con el motivo de EZVIZ.
+        """
         endpoint = "/v3/users/login/v5"
         data = {
             "account": self.email,
             "password": self.password,
             "featureCode": EzvizConfig.FEATURE_CODE,
+            # Al enviar código, el login registra el terminal en la cuenta.
+            "msgType": "3" if sms_code else "0",
+            "bizType": "TERMINAL_BIND" if sms_code else "",
             "cuName": base64.b64encode(b"EZVIZ-RE").decode(),
         }
+        if sms_code:
+            data["smsCode"] = str(sms_code).strip()
 
         response = requests.post(
             f"{self.api_url}{endpoint}",
             data=urlencode(data),
-            headers=self._get_headers()
+            headers=self._get_headers(),
+            timeout=25,
         )
 
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("meta", {}).get("code") == 200:
-                self.session_id = result["loginSession"]["sessionId"]
-                return True
+        if response.status_code != 200:
+            raise EzvizAuthError(response.status_code, "HTTP inesperado de la API")
 
-        return False
+        try:
+            result = response.json()
+        except ValueError:
+            raise EzvizAuthError("no-json", response.text[:200])
+
+        meta = result.get("meta", {}) or {}
+        code = meta.get("code")
+
+        if code == 200:
+            self.session_id = result["loginSession"]["sessionId"]
+            return True
+
+        if code == 6002:
+            self.send_mfa_code()
+            raise EzvizMFARequired(code, meta.get("message", "verificación requerida"))
+
+        if code in (1013, 1015):
+            raise EzvizAuthError(code, "la cuenta está bloqueada")
+
+        if code == 1002:
+            raise EzvizAuthError(code, "la cuenta no existe")
+
+        if code in (1001, 1003):
+            raise EzvizAuthError(code, "usuario o contraseña incorrectos")
+
+        if code == 1100:
+            area = (result.get("loginArea") or {}).get("apiDomain")
+            raise EzvizAuthError(code, "región incorrecta, prueba con %s" % area)
+
+        raise EzvizAuthError(code, meta.get("message", "motivo desconocido"))
 
     def get_server_info(self):
         """Get server information (AUTH_URL)"""
@@ -472,7 +596,7 @@ class EzvizStream:
 class EzvizCamera:
     """High-level EZVIZ camera interface"""
 
-    def __init__(self, email, password, device_serial, region="Europe"):
+    def __init__(self, email, password, device_serial, region="Europe", mfa_code=None):
         """
         Initialize EZVIZ camera
 
@@ -481,16 +605,23 @@ class EzvizCamera:
             password: EZVIZ account password
             device_serial: Camera serial number
             region: Geographic region (Europe, Asia, NorthAmerica, SouthAmerica)
+            mfa_code: código de verificación, solo la primera vez que se
+                registra este terminal en la cuenta
         """
         self.device_serial = device_serial
         self.api = EzvizAPI(email, password, region)
+        self.mfa_code = mfa_code
         self.stream = None
         self._connected = False
 
     def connect(self):
-        """Connect to EZVIZ and authenticate"""
-        if not self.api.login():
-            raise Exception("Login failed")
+        """Connect to EZVIZ and authenticate.
+
+        Deja escapar EzvizAuthError y EzvizMFARequired: quien llama necesita
+        distinguir un problema de credenciales de un corte de stream, porque el
+        primero no se arregla reintentando.
+        """
+        self.api.login(sms_code=self.mfa_code)
 
         if not self.api.get_server_info():
             raise Exception("Failed to get server info")

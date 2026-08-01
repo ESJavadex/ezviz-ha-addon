@@ -9,7 +9,13 @@ import os
 import struct
 import threading
 import time
-from ezviz_stream import EzvizCamera, EzvizConfig, VTMPacket
+from ezviz_stream import (
+    EzvizAuthError,
+    EzvizCamera,
+    EzvizConfig,
+    EzvizMFARequired,
+    VTMPacket,
+)
 
 def send_keepalive(sock, stop_event, interval=20):
     """Send keepalive packets periodically to prevent VTDU timeout"""
@@ -39,7 +45,7 @@ def send_keepalive(sock, stop_event, interval=20):
             break
 
 
-def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
+def stream_to_pipe(email, password, serial, pipe_path, region="Europe", mfa_code=None):
     """Stream EZVIZ camera to a named pipe"""
 
     print("=" * 60, file=sys.stderr)
@@ -48,7 +54,7 @@ def stream_to_pipe(email, password, serial, pipe_path, region="Europe"):
 
     # Connect to camera
     print("\n[1/3] Connecting to EZVIZ...", file=sys.stderr)
-    camera = EzvizCamera(email, password, serial, region)
+    camera = EzvizCamera(email, password, serial, region, mfa_code=mfa_code)
     camera.connect()
     print("✓ Connected\n", file=sys.stderr)
 
@@ -175,11 +181,29 @@ if __name__ == '__main__':
     parser.add_argument('--serial', required=True, help='Camera serial')
     parser.add_argument('--region', default='Europe', help='Region')
     parser.add_argument('--pipe', default='/tmp/ezviz_stream', help='Output pipe path')
+    parser.add_argument('--mfa-code', default=None,
+                        help='Código de verificación, solo al registrar el terminal')
 
     args = parser.parse_args()
 
+    # Código 78 (EX_CONFIG) para los fallos de autenticación: reintentar no los
+    # arregla, y quien nos invoca debe esperar en vez de martillear la API.
+    EXIT_AUTH = 78
+
     try:
-        stream_to_pipe(args.email, args.password, args.serial, args.pipe, args.region)
+        stream_to_pipe(args.email, args.password, args.serial, args.pipe,
+                       args.region, mfa_code=args.mfa_code or None)
+    except EzvizMFARequired as e:
+        print("\n✗ EZVIZ pide verificar este dispositivo.", file=sys.stderr)
+        print(f"  Motivo de la API: {e}", file=sys.stderr)
+        print("  Se acaba de enviar un código a tu cuenta de EZVIZ (email o SMS).",
+              file=sys.stderr)
+        print("  Ponlo en la opción 'mfa_code' del add-on y reinícialo.", file=sys.stderr)
+        print("  Solo hace falta una vez: después queda registrado.", file=sys.stderr)
+        sys.exit(EXIT_AUTH)
+    except EzvizAuthError as e:
+        print(f"\n✗ {e}", file=sys.stderr)
+        sys.exit(EXIT_AUTH)
     except Exception as e:
         print(f"\n✗ Error: {e}", file=sys.stderr)
         sys.exit(1)

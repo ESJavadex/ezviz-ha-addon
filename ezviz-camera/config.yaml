@@ -1,5 +1,5 @@
 name: "EZVIZ Camera HLS Stream"
-version: "2.1.1"
+version: "2.2.0"
 slug: "ezviz_camera_stream"
 description: "Stream EZVIZ cameras via HLS with automatic reconnection"
 arch:
@@ -24,6 +24,7 @@ options:
   hls_list_size: 10
   on_demand: true
   idle_timeout: 30
+  mfa_code: ""
 schema:
   email: str
   password: password
@@ -33,3 +34,4 @@ schema:
   hls_list_size: int(5,20)?
   on_demand: bool?
   idle_timeout: int(10,300)?
+  mfa_code: str?

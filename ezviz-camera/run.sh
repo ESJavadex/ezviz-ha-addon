@@ -12,6 +12,12 @@ HLS_TIME=$(bashio::config 'hls_time')
 HLS_LIST_SIZE=$(bashio::config 'hls_list_size')
 ON_DEMAND=$(bashio::config 'on_demand')
 IDLE_TIMEOUT=$(bashio::config 'idle_timeout')
+MFA_CODE=$(bashio::config 'mfa_code')
+
+# bashio devuelve la cadena "null" cuando la opción está vacía.
+if [ "${MFA_CODE}" = "null" ]; then
+    MFA_CODE=""
+fi
 
 # Create HLS directory
 mkdir -p /share/ezviz_hls
@@ -59,7 +65,8 @@ if [ "${ON_DEMAND}" = "true" ]; then
         --region "${REGION}" \
         --hls-time "${HLS_TIME}" \
         --hls-list-size "${HLS_LIST_SIZE}" \
-        --idle-timeout "${IDLE_TIMEOUT}"
+        --idle-timeout "${IDLE_TIMEOUT}" \
+        --mfa-code "${MFA_CODE}"
 fi
 
 # ============================================
@@ -90,6 +97,14 @@ TIMESTAMP=$(date +%s)
 
 # Main streaming loop with auto-restart
 RESTART_COUNT=0
+
+# Un fallo de autenticación no se arregla reintentando: hay que esperar a que
+# alguien corrija la configuración. Se reintenta con espera creciente en lugar
+# de cada 0.5s, que llegó a lanzar decenas de miles de logins contra EZVIZ.
+EXIT_AUTH=78
+AUTH_BACKOFF=60
+AUTH_BACKOFF_MAX=1800
+
 while true; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
     bashio::log.info "[${RESTART_COUNT}] Starting stream..."
@@ -98,12 +113,12 @@ while true; do
     SESSION_ID="${TIMESTAMP}_${RESTART_COUNT}"
 
     # Start streaming (stderr goes to log, stdout pipes to ffmpeg)
-    # || true ensures the loop continues even if ffmpeg exits with error
     python3 -u /app/stream_to_pipe.py \
         --email "${EMAIL}" \
         --password "${PASSWORD}" \
         --serial "${SERIAL}" \
-        --region "${REGION}" | \
+        --region "${REGION}" \
+        --mfa-code "${MFA_CODE}" | \
     ffmpeg -re -i pipe:0 \
         -c:v libx264 \
         -preset ultrafast \
@@ -115,13 +130,30 @@ while true; do
         -hls_list_size "${HLS_LIST_SIZE}" \
         -hls_flags append_list+omit_endlist+discont_start \
         -hls_segment_filename "/share/ezviz_hls/seg_${SESSION_ID}_%03d.ts" \
-        /share/ezviz_hls/stream.m3u8 2>&1 || true
+        /share/ezviz_hls/stream.m3u8 2>&1
+
+    # El código que importa es el de Python, no el de ffmpeg (último del pipe).
+    STREAM_RC=${PIPESTATUS[0]}
 
     # Clean up old segments (keep last 30)
     ls -1t /share/ezviz_hls/*.ts 2>/dev/null | tail -n +31 | xargs -r rm -f
 
     # Check if HTTP server is still alive, restart if needed
     check_http_server
+
+    if [ "${STREAM_RC}" -eq "${EXIT_AUTH}" ]; then
+        bashio::log.error "EZVIZ rechazó la autenticación (ver el motivo arriba)."
+        bashio::log.error "Reintentando en ${AUTH_BACKOFF}s. Corrige la configuración del add-on."
+        sleep "${AUTH_BACKOFF}"
+        AUTH_BACKOFF=$((AUTH_BACKOFF * 2))
+        if [ "${AUTH_BACKOFF}" -gt "${AUTH_BACKOFF_MAX}" ]; then
+            AUTH_BACKOFF=${AUTH_BACKOFF_MAX}
+        fi
+        continue
+    fi
+
+    # Se pudo autenticar: la próxima caída de credenciales vuelve a esperar poco.
+    AUTH_BACKOFF=60
 
     # Stream ended, quick restart
     bashio::log.warning "Stream ended. Quick restart..."

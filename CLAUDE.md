@@ -14,6 +14,24 @@ Home Assistant add-on that streams EZVIZ cameras via HLS. Primary target platfor
 3. `run.sh` - Orchestrates pipeline: Python → ffmpeg (H.265→H.264) → HLS segments
 4. Python HTTP server serves HLS on port 8080
 
+### Authentication
+
+`meta.code 6002` on login means **EZVIZ requires device verification**, not a
+wrong password. The flow is: login → 6002 → `POST /v3/sms/nologin/checkcode`
+with `{from: account, bizType: TERMINAL_BIND}` → login again with `smsCode`,
+`msgType: "3"` and `bizType: "TERMINAL_BIND"`. That registers the terminal once.
+
+The `featureCode` identifies this installation and must be stable across
+restarts, or EZVIZ asks for a code every time. It is generated on first run and
+persisted to `/data/feature_code`. A hardcoded value shared by all installs gets
+rejected — that is exactly what broke version 2.1.1 and earlier.
+
+`login()` raises `EzvizAuthError` / `EzvizMFARequired` instead of returning a
+bare `False`, because a caller has to distinguish credentials problems (which
+retrying never fixes) from a dropped stream (which retrying does fix).
+`stream_to_pipe.py` exits with **78** on auth failures so `run.sh` backs off
+instead of retrying every 0.5s.
+
 ### EZVIZ Protocol Flow
 1. Login to EZVIZ API (`/v3/users/login/v5`), receive session JWT
 2. Get server info for AUTH_URL
