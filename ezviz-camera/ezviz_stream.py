@@ -235,6 +235,76 @@ class EzvizAPI:
         self.api_url = f"https://api{self.region_code}.ezvizlife.com"
         self.auth_url = None
         self.session_id = None
+        self.refresh_session_id = None
+        self._token_path = os.environ.get("EZVIZ_TOKEN_FILE", "/data/session.json")
+        self._load_token()
+
+    # ---- Sesión persistente -------------------------------------------------
+
+    def _load_token(self):
+        """Recupera la sesión del arranque anterior, si la hay."""
+        try:
+            with open(self._token_path) as fh:
+                token = json.load(fh)
+        except (OSError, ValueError):
+            return
+        # Una sesión de otra cuenta no sirve de nada.
+        if token.get("account") != self.email:
+            return
+        self.session_id = token.get("session_id")
+        self.refresh_session_id = token.get("rf_session_id")
+
+    def _save_token(self):
+        """Guarda la sesión para no tener que loguear en el próximo arranque."""
+        if not (self.session_id and self.refresh_session_id):
+            return
+        try:
+            with open(self._token_path, "w") as fh:
+                json.dump({
+                    "account": self.email,
+                    "session_id": self.session_id,
+                    "rf_session_id": self.refresh_session_id,
+                }, fh)
+            os.chmod(self._token_path, 0o600)
+        except OSError:
+            pass
+
+    def refresh_session(self):
+        """Renueva la sesión sin volver a autenticarse.
+
+        Un login completo puede toparse con la verificación de dispositivo,
+        así que conviene evitarlo siempre que se pueda: reiniciar el add-on no
+        debería ser un evento de autenticación.
+        """
+        if not (self.session_id and self.refresh_session_id):
+            return False
+
+        try:
+            response = requests.put(
+                f"{self.api_url}/v3/apigateway/login",
+                data=urlencode({
+                    "refreshSessionId": self.refresh_session_id,
+                    "featureCode": EzvizConfig.FEATURE_CODE,
+                }),
+                headers=self._get_headers(),
+                timeout=25,
+            )
+            result = response.json()
+        except (requests.RequestException, ValueError):
+            return False
+
+        if (result.get("meta", {}) or {}).get("code") != 200:
+            return False
+
+        info = result.get("sessionInfo") or {}
+        session_id = info.get("sessionId")
+        if not session_id:
+            return False
+
+        self.session_id = str(session_id)
+        self.refresh_session_id = str(info.get("refreshSessionId") or self.refresh_session_id)
+        self._save_token()
+        return True
 
     @staticmethod
     def _md5(text):
@@ -313,6 +383,12 @@ class EzvizAPI:
                 usuario ya lo tenga en su bandeja al leer el error.
             EzvizAuthError: cualquier otro rechazo, con el motivo de EZVIZ.
         """
+        # Si hay sesión guardada, renovarla evita un login completo (y con él,
+        # la posibilidad de que EZVIZ pida verificar el dispositivo otra vez).
+        # Cuando se está registrando un código nuevo hay que loguear de verdad.
+        if not sms_code and self.refresh_session():
+            return True
+
         endpoint = "/v3/users/login/v5"
         data = {
             "account": self.email,
@@ -345,7 +421,10 @@ class EzvizAPI:
         code = meta.get("code")
 
         if code == 200:
-            self.session_id = result["loginSession"]["sessionId"]
+            session = result["loginSession"]
+            self.session_id = session["sessionId"]
+            self.refresh_session_id = session.get("rfSessionId")
+            self._save_token()
             return True
 
         if code == 6002:

@@ -43,6 +43,10 @@ versions sent a fixed string of 32 zeros, shared by every installation, which is
 what EZVIZ started rejecting. **Do not delete that file** — losing it means
 verifying again.
 
+The add-on also keeps the session in `/data/session.json` and renews it instead
+of logging in again on every start, so a restart no longer risks running into
+device verification at all.
+
 ## Troubleshooting
 
 **Login fails repeatedly.** The log now prints the reason EZVIZ gave instead of

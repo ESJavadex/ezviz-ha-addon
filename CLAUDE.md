@@ -32,6 +32,23 @@ retrying never fixes) from a dropped stream (which retrying does fix).
 `stream_to_pipe.py` exits with **78** on auth failures so `run.sh` backs off
 instead of retrying every 0.5s.
 
+The session (`sessionId` + `rfSessionId`) is persisted to `/data/session.json`
+and renewed through `PUT /v3/apigateway/login`, falling back to a full login
+only when the refresh is rejected. This matters: a full login can hit device
+verification, so restarting the add-on should not be an authentication event.
+
+Verification codes are requested at most once every `MFA_RESEND_SECONDS`
+(marker in `/data/mfa_requested_at`). Each send invalidates the previous code,
+so asking on every retry leaves the user chasing an already-expired one.
+
+### Logging
+
+`http_server.py` collapses routine traffic (200/206/304/404) into a periodic
+summary. A player polls the playlist several times a second, and when there is
+no stream that becomes hundreds of 404s per minute — enough to push real errors
+out of the add-on log. Anything that is not routine traffic is still printed
+immediately.
+
 ### EZVIZ Protocol Flow
 1. Login to EZVIZ API (`/v3/users/login/v5`), receive session JWT
 2. Get server info for AUTH_URL
