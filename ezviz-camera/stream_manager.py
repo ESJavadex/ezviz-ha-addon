@@ -242,7 +242,7 @@ class OnDemandHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def run_on_demand_server(port, directory, email, password, serial, region,
-                         hls_time, hls_list_size, idle_timeout):
+                         hls_time, hls_list_size, idle_timeout, mfa_code):
     """Run the on-demand streaming server"""
     os.chdir(directory)
 
@@ -255,7 +255,8 @@ def run_on_demand_server(port, directory, email, password, serial, region,
         hls_time=hls_time,
         hls_list_size=hls_list_size,
         hls_dir=directory,
-        idle_timeout=idle_timeout
+        idle_timeout=idle_timeout,
+        mfa_code=mfa_code
     )
 
     # Configure handler
